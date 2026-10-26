@@ -48,6 +48,18 @@ if (($userPath -split ";") -notcontains $bin) {
 
 $exe = (Join-Path $bin "tbx.exe").Replace("\", "/")
 Write-Host "`nInstalled to $home_`n"
+# Re-indents ConvertTo-Json output (Windows PowerShell 5 pads it unevenly) to two spaces.
+function Format-Json([string]$json) {
+    $depth = 0
+    $lines = foreach ($line in $json -split "`r?`n") {
+        $t = $line.Trim()
+        if ($t -match '^[}\]]') { $depth-- }
+        $t = $t -replace '^("(?:[^"\\]|\\.)*"):\s+', '$1: '
+        ("  " * $depth) + $t
+        if ($t -match '[{\[]$') { $depth++ }
+    }
+    ($lines -join "`n") + "`n"
+}
 $entry = [ordered]@{ type = "stdio"; command = $exe; args = @("mcp") }
 
 # Registers tbx in the JetBrains Copilot MCP config unless it is already there.
@@ -60,7 +72,7 @@ if (Test-Path (Split-Path $mcpFile)) {
     } else {
         if (Test-Path $mcpFile) { Copy-Item $mcpFile "$mcpFile.bak" -Force }
         $cfg.servers | Add-Member -NotePropertyName tbx -NotePropertyValue ([pscustomobject]$entry)
-        $cfg | ConvertTo-Json -Depth 20 | Set-Content $mcpFile -Encoding UTF8
+        [IO.File]::WriteAllText($mcpFile, (Format-Json ($cfg | ConvertTo-Json -Depth 20)), (New-Object Text.UTF8Encoding $false))
         Write-Host "Added tbx to $mcpFile (backup: mcp.json.bak)."
     }
 } else {
