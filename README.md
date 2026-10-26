@@ -21,7 +21,7 @@ gh api repos/aravindakrc/toolbox/contents/scripts/install.sh -H "Accept: applica
 ```
 
 The script checks the checksum, puts `tbx` in `~/.toolbox/bin`, the kinds and recipes in `~/.toolbox/kinds` and
-`~/.toolbox/recipes` (where `tbx` loads them from), and prints the MCP configuration. Run it again to update; it
+`~/.toolbox/recipes` (where `tbx` loads them from), and, on Windows, adds `tbx` to the JetBrains Copilot MCP config (`%LOCALAPPDATA%\github-copilot\intellij\mcp.json`) unless it is already there, keeping a `.bak` copy; otherwise it prints the configuration to paste. Run it again to update; it
 replaces those two folders, so keep your own kinds in another directory and pass `--kinds`. Pass a tag
 (`-Version v0.1.0` or `install.sh v0.1.0`) to pin a version.
 

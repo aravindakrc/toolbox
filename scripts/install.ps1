@@ -48,6 +48,23 @@ if (($userPath -split ";") -notcontains $bin) {
 
 $exe = (Join-Path $bin "tbx.exe").Replace("\", "/")
 Write-Host "`nInstalled to $home_`n"
-Write-Host "MCP client configuration (VS Code mcp.json, or the MCP settings of your IDE):`n"
-@{ servers = @{ tbx = @{ command = $exe; args = @("mcp") } } } | ConvertTo-Json -Depth 4
+$entry = [ordered]@{ type = "stdio"; command = $exe; args = @("mcp") }
+
+# Registers tbx in the JetBrains Copilot MCP config unless it is already there.
+$mcpFile = Join-Path $env:LOCALAPPDATA "github-copilot\intellij\mcp.json"
+if (Test-Path (Split-Path $mcpFile)) {
+    $cfg = if (Test-Path $mcpFile) { Get-Content $mcpFile -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
+    if (-not $cfg.servers) { $cfg | Add-Member -NotePropertyName servers -NotePropertyValue ([pscustomobject]@{}) }
+    if ($cfg.servers.PSObject.Properties["tbx"]) {
+        Write-Host "tbx is already in $mcpFile, left unchanged."
+    } else {
+        if (Test-Path $mcpFile) { Copy-Item $mcpFile "$mcpFile.bak" -Force }
+        $cfg.servers | Add-Member -NotePropertyName tbx -NotePropertyValue ([pscustomobject]$entry)
+        $cfg | ConvertTo-Json -Depth 20 | Set-Content $mcpFile -Encoding UTF8
+        Write-Host "Added tbx to $mcpFile (backup: mcp.json.bak)."
+    }
+} else {
+    Write-Host "JetBrains Copilot config not found. For other clients, add this MCP server:`n"
+    @{ servers = @{ tbx = $entry } } | ConvertTo-Json -Depth 4
+}
 Write-Host "`nRestart the MCP server and start a new chat, then use the /tbx-<recipe> commands."
