@@ -1,12 +1,13 @@
 # Installs tbx and its kinds and recipes from the latest GitHub release.
-# Needs the GitHub CLI (gh), signed in with access to the repository.
+# Needs the GitHub CLI (gh) signed in with access to the repository, or pass -Zip with a release zip downloaded from the browser.
 param(
     [string]$Repo = "aravindakrc/toolbox",
-    [string]$Version = "latest"
+    [string]$Version = "latest",
+    [string]$Zip = ""
 )
 $ErrorActionPreference = "Stop"
 
-if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw "Install the GitHub CLI first (https://cli.github.com) and run: gh auth login" }
+if (-not $Zip -and -not (Get-Command gh -ErrorAction SilentlyContinue)) { throw "Install the GitHub CLI and run: gh auth login, or download the zip from the releases page and pass it with -Zip" }
 
 $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
 $home_ = if ($env:TBX_HOME) { $env:TBX_HOME } else { Join-Path $HOME ".toolbox" }
@@ -14,16 +15,19 @@ $tmp = Join-Path ([IO.Path]::GetTempPath()) ("tbx-install-" + [guid]::NewGuid())
 New-Item -ItemType Directory $tmp | Out-Null
 
 try {
-    $tag = if ($Version -eq "latest") { @() } else { @($Version) }
-    gh release download @tag --repo $Repo --dir $tmp --pattern "tbx_*_windows_$arch.zip" --pattern checksums.txt
-    if ($LASTEXITCODE) { throw "download failed" }
+    if ($Zip) {
+        $pkg = Get-Item $Zip
+    } else {
+        $tag = if ($Version -eq "latest") { @() } else { @($Version) }
+        gh release download @tag --repo $Repo --dir $tmp --pattern "tbx_*_windows_$arch.zip" --pattern checksums.txt
+        if ($LASTEXITCODE) { throw "download failed" }
 
-    $zip = Get-ChildItem $tmp -Filter "*.zip" | Select-Object -First 1
-    $want = (Select-String -Path (Join-Path $tmp "checksums.txt") -Pattern ([regex]::Escape($zip.Name))).Line.Split(" ")[0]
-    if ((Get-FileHash $zip.FullName -Algorithm SHA256).Hash -ne $want.ToUpper()) { throw "checksum mismatch for $($zip.Name)" }
-
-    Expand-Archive $zip.FullName -DestinationPath $tmp
-    $src = Join-Path $tmp $zip.BaseName
+        $pkg = Get-ChildItem $tmp -Filter "*.zip" | Select-Object -First 1
+        $want = (Select-String -Path (Join-Path $tmp "checksums.txt") -Pattern ([regex]::Escape($pkg.Name))).Line.Split(" ")[0]
+        if ((Get-FileHash $pkg.FullName -Algorithm SHA256).Hash -ne $want.ToUpper()) { throw "checksum mismatch for $($pkg.Name)" }
+    }
+    Expand-Archive $pkg.FullName -DestinationPath $tmp
+    $src = Join-Path $tmp $pkg.BaseName
     $bin = Join-Path $home_ "bin"
     New-Item -ItemType Directory -Force $bin | Out-Null
     Copy-Item (Join-Path $src "tbx.exe") (Join-Path $bin "tbx.exe") -Force

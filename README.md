@@ -25,7 +25,16 @@ The script checks the checksum, puts `tbx` in `~/.toolbox/bin`, the kinds and re
 replaces those two folders, so keep your own kinds in another directory and pass `--kinds`. Pass a tag
 (`-Version v0.1.0` or `install.sh v0.1.0`) to pin a version.
 
-You can also download the zip from the releases page and unpack it by hand.
+No admin rights or `gh`? Open the repository's Releases page in a browser (signed in), download the zip for your
+platform, and install from it. Download `scripts/install.ps1` or `install.sh` from the repository the same way:
+
+```
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Zip C:\path\to\tbx_v0.1.0_windows_amd64.zip
+ZIP=/path/to/tbx_v0.1.0_linux_amd64.zip sh install.sh
+```
+
+Nothing here needs admin rights: everything goes under `~/.toolbox` and your user PATH. `gh` itself can also be
+installed without admin from its portable zip, or with `winget install GitHub.cli --scope user`.
 
 Recipes such as `local-service` also need `git`, `az`, `kubectl`, `kubelogin` and `java` on the PATH.
 
