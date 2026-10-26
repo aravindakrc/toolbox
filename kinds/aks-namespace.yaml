@@ -1,0 +1,55 @@
+kind: AksNamespace
+uses:
+  login: AzLogin
+fields:
+  namespace:
+    type: string
+    required: true
+    sources:
+      - flag: namespace
+      - default: ${name}
+  cluster:
+    type: string
+    required: true
+    sources:
+      - flag: cluster
+      - env: AKS_CLUSTER
+      - prompt: AKS cluster name
+  resourceGroup:
+    type: string
+    sources:
+      - flag: resourceGroup
+      - env: AKS_RESOURCE_GROUP
+  subscription:
+    type: string
+    sources:
+      - flag: subscription
+      - env: AZURE_SUBSCRIPTION_ID
+  context:
+    type: string
+    required: true
+    sources:
+      - flag: context
+      - default: ${cluster}
+provider:
+  discover: |
+    kubectl config get-contexts "$TBX_CONTEXT" >/dev/null 2>&1
+  apply: |
+    resource_group=$TBX_RESOURCE_GROUP
+    if [ -z "$resource_group" ]; then
+      resource_group=$(az aks list --query "[?name=='$TBX_CLUSTER'].resourceGroup | [0]" -o tsv \
+        ${TBX_SUBSCRIPTION:+--subscription "$TBX_SUBSCRIPTION"})
+      resource_group=${resource_group//[$'\r\n']/}
+    fi
+    if [ -z "$resource_group" ]; then
+      echo "cannot find the resource group of cluster $TBX_CLUSTER; set the resourceGroup field" >&2
+      exit 1
+    fi
+    az aks get-credentials --resource-group "$resource_group" --name "$TBX_CLUSTER" \
+      --context "$TBX_CONTEXT" --overwrite-existing --public-fqdn \
+      ${TBX_SUBSCRIPTION:+--subscription "$TBX_SUBSCRIPTION"} || exit 1
+    if command -v kubelogin >/dev/null 2>&1; then
+      kubelogin convert-kubeconfig -l azurecli --context "$TBX_CONTEXT" || exit 1
+    fi
+  verify: |
+    kubectl --context "$TBX_CONTEXT" --namespace "$TBX_NAMESPACE" get deployments >/dev/null

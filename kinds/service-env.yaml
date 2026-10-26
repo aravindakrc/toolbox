@@ -1,0 +1,56 @@
+kind: ServiceEnv
+uses:
+  dod: Dod
+fields:
+  service:
+    type: string
+    required: true
+    sources:
+      - flag: service
+      - prompt: Service whose environment to copy
+  namespace:
+    type: string
+    required: true
+    sources:
+      - ref: dod.namespace
+  context:
+    type: string
+    required: true
+    sources:
+      - ref: dod.context
+  file:
+    type: string
+    required: true
+    sources:
+      - flag: file
+      - default: ${data}/service.env
+provider:
+  discover: |
+    test -s "$TBX_FILE"
+  apply: |
+    kc() { kubectl --context "$TBX_CONTEXT" -n "$TBX_NAMESPACE" "$@"; }
+    kc get deployment "$TBX_SERVICE" >/dev/null || exit 1
+    dep() { kc get deployment "$TBX_SERVICE" -o go-template="$1"; }
+    mkdir -p "${TBX_FILE%[/\\]*}"
+    {
+      dep '{{range (index .spec.template.spec.containers 0).envFrom}}{{if .secretRef}}secret {{.secretRef.name}}{{"\n"}}{{end}}{{if .configMapRef}}configmap {{.configMapRef.name}}{{"\n"}}{{end}}{{end}}' |
+      while read -r type ref; do
+        [ -n "$ref" ] || continue
+        if [ "$type" = secret ]; then
+          kc get secret "$ref" -o go-template='{{range $k, $v := .data}}{{$k}}={{printf "%q" ($v | base64decode)}}{{"\n"}}{{end}}'
+        else
+          kc get configmap "$ref" -o go-template='{{range $k, $v := .data}}{{$k}}={{printf "%q" $v}}{{"\n"}}{{end}}'
+        fi
+      done
+      dep '{{range (index .spec.template.spec.containers 0).env}}{{if .value}}{{.name}}={{printf "%q" .value}}{{"\n"}}{{end}}{{end}}'
+      dep '{{range (index .spec.template.spec.containers 0).env}}{{if .valueFrom}}{{if .valueFrom.secretKeyRef}}{{.name}} {{.valueFrom.secretKeyRef.name}} {{.valueFrom.secretKeyRef.key}}{{"\n"}}{{end}}{{end}}{{end}}' |
+      while read -r name secret key; do
+        [ -n "$key" ] || continue
+        value=$(kc get secret "$secret" -o go-template="{{index .data \"$key\" | base64decode}}") || exit 1
+        printf '%s=%s\n' "$name" "\"$value\""
+      done
+    } > "$TBX_FILE"
+  verify: |
+    test -s "$TBX_FILE"
+  destroy: |
+    rm -rf "$TBX_FILE"

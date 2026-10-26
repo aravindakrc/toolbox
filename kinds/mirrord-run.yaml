@@ -1,0 +1,210 @@
+kind: MirrordRun
+uses:
+  repo: LocalRepo
+  dod: Dod
+  mirrord: MirrordInstall
+  maven: MavenInstall
+fields:
+  service:
+    type: string
+    required: true
+    sources:
+      - flag: service
+      - prompt: Deployment to run as (mirrord target)
+  namespace:
+    type: string
+    required: true
+    sources:
+      - ref: dod.namespace
+  context:
+    type: string
+    required: true
+    sources:
+      - ref: dod.context
+  profiles:
+    type: string
+    sources:
+      - flag: profiles
+  overrides:
+    type: string
+    sources:
+      - flag: overrides
+  envAliases:
+    type: string
+    sources:
+      - flag: envAliases
+  envFile:
+    type: string
+    sources:
+      - default: ${data}/../../../ServiceEnv/${service}/data/service.env
+  mavenModule:
+    type: string
+    sources:
+      - flag: mavenModule
+  module:
+    type: string
+    required: true
+    sources:
+      - flag: module
+      - default: ${name}
+  config:
+    type: string
+    required: true
+    sources:
+      - default: ${data}/mirrord.json
+  launcher:
+    type: string
+    required: true
+    sources:
+      - default: ${data}/run.cmd
+        when:
+          os: windows
+      - default: ${data}/run.sh
+  configName:
+    type: string
+    required: true
+    sources:
+      - default: ${name} (mirrord)
+  configFile:
+    type: string
+    required: true
+    sources:
+      - default: tbx-${name}-mirrord.xml
+  debugPort:
+    type: integer
+    required: true
+    sources:
+      - flag: debugPort
+      - default: 5005
+  attachName:
+    type: string
+    required: true
+    sources:
+      - default: ${name} (attach debugger)
+  attachFile:
+    type: string
+    required: true
+    sources:
+      - default: tbx-${name}-attach.xml
+provider:
+  discover: |
+    test -f "$TBX_CONFIG" && test -f "$TBX_LAUNCHER" && test -f "$TBX_REPO_PATH/.idea/runConfigurations/$TBX_CONFIG_FILE" && test -f "$TBX_REPO_PATH/.idea/runConfigurations/$TBX_ATTACH_FILE"
+  apply: |
+    native() { echo "${1//\//'\'}"; }
+    overrides=""
+    IFS=';'
+    for pair in $TBX_OVERRIDES; do
+      overrides="$overrides${overrides:+, }\"${pair%%=*}\": \"${pair#*=}\""
+    done
+    IFS=$' \t\n'
+    cat > "$TBX_CONFIG" <<EOF
+    {
+      "target": {
+        "path": "deployment/$TBX_SERVICE",
+        "namespace": "$TBX_NAMESPACE"
+      },
+      "kube_context": "$TBX_CONTEXT",
+      "agent": {
+        "namespace": "$TBX_NAMESPACE"
+      },
+      "feature": {
+        "env": {
+          "exclude": "PATH;Path;JAVA_HOME;MAVEN_HOME;M2_HOME;HOME;HOSTNAME;USERPROFILE;TEMP;TMP;COMPUTERNAME",
+          "override": { $overrides }
+        },
+        "fs": "local",
+        "network": {
+          "incoming": { "mode": "mirror", "ignore_ports": [$TBX_DEBUG_PORT] },
+          "outgoing": true,
+          "dns": true
+        }
+      }
+    }
+    EOF
+    # The launcher never builds. When the module needs its sibling modules, a failed
+    # start prints how to install them, since that is done once and from the IDE.
+    cmdhint="rem"; shhint=":"
+    if [ -n "$TBX_MAVEN_MODULE" ]; then
+      hint="If the start failed because a module could not be resolved, run Maven install for $TBX_MAVEN_MODULE and its modules (IDE Maven tool window, or: mvn -pl $TBX_MAVEN_MODULE -am install -DskipTests), then run again."
+      cmdhint="if errorlevel 1 echo $hint"
+      shhint="[ \$? -eq 0 ] || echo \"$hint\""
+    fi
+    # NEW=EXISTING pairs copy a variable of the service env file to a second name when
+    # the launcher starts, so the value is not written into mirrord.json.
+    cmdalias="rem"; shalias=":"
+    IFS=';'
+    for pair in $TBX_ENV_ALIASES; do
+      new=${pair%%=*}
+      old=${pair#*=}
+      cmdalias="$cmdalias
+    for /f \"tokens=1,* delims==\" %%a in ('findstr /b /c:\"$old=\" \"$(native "$TBX_ENV_FILE")\"') do set \"$new=%%~b\""
+      shalias="$shalias
+    $new=\$(sed -n -e 's/^$old=//p' \"$TBX_ENV_FILE\" | head -n1 | sed -e 's/^\"//' -e 's/\"\$//'); export $new"
+    done
+    IFS=$' \t\n'
+    case "$TBX_LAUNCHER" in
+      *.cmd)
+        cat > "$TBX_LAUNCHER" <<EOF
+    @echo off
+    $cmdalias
+    "$(native "$TBX_MIRRORD_BINARY")" exec -f "$(native "$TBX_CONFIG")" -- "$(native "$TBX_MAVEN_BINARY")" -f "$(native "$TBX_REPO_PATH/pom.xml")" ${TBX_MAVEN_MODULE:+-pl $TBX_MAVEN_MODULE} spring-boot:run "-Dspring-boot.run.jvmArguments=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:$TBX_DEBUG_PORT" ${TBX_PROFILES:+-Dspring-boot.run.profiles=$TBX_PROFILES}
+    $cmdhint
+    EOF
+        interpreter="cmd.exe"
+        interpreter_options="/c"
+        ;;
+      *)
+        cat > "$TBX_LAUNCHER" <<EOF
+    #!/bin/sh
+    $shalias
+    "$TBX_MIRRORD_BINARY" exec -f "$TBX_CONFIG" -- "$TBX_MAVEN_BINARY" -f "$TBX_REPO_PATH/pom.xml" ${TBX_MAVEN_MODULE:+-pl $TBX_MAVEN_MODULE} spring-boot:run "-Dspring-boot.run.jvmArguments=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:$TBX_DEBUG_PORT" ${TBX_PROFILES:+-Dspring-boot.run.profiles=$TBX_PROFILES}
+    $shhint
+    EOF
+        chmod +x "$TBX_LAUNCHER"
+        interpreter="/bin/sh"
+        interpreter_options=""
+        ;;
+    esac
+    dir="$TBX_REPO_PATH/.idea/runConfigurations"
+    mkdir -p "$dir"
+    cat > "$dir/$TBX_CONFIG_FILE" <<EOF
+    <component name="ProjectRunConfigurationManager">
+      <configuration default="false" name="$TBX_CONFIG_NAME" type="ShConfigurationType">
+        <option name="SCRIPT_TEXT" value="" />
+        <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
+        <option name="SCRIPT_PATH" value="$(native "$TBX_LAUNCHER")" />
+        <option name="SCRIPT_OPTIONS" value="" />
+        <option name="INDEPENDENT_SCRIPT_WORKING_DIRECTORY" value="true" />
+        <option name="SCRIPT_WORKING_DIRECTORY" value="\$PROJECT_DIR\$" />
+        <option name="INDEPENDENT_INTERPRETER_PATH" value="true" />
+        <option name="INTERPRETER_PATH" value="$interpreter" />
+        <option name="INTERPRETER_OPTIONS" value="$interpreter_options" />
+        <option name="EXECUTE_IN_TERMINAL" value="false" />
+        <option name="EXECUTE_SCRIPT_FILE" value="true" />
+        <envs />
+        <method v="2" />
+      </configuration>
+    </component>
+    EOF
+    cat > "$dir/$TBX_ATTACH_FILE" <<EOF
+    <component name="ProjectRunConfigurationManager">
+      <configuration default="false" name="$TBX_ATTACH_NAME" type="Remote">
+        <option name="USE_SOCKET_TRANSPORT" value="true" />
+        <option name="SERVER_MODE" value="false" />
+        <option name="SHMEM_ADDRESS" />
+        <option name="HOST" value="localhost" />
+        <option name="PORT" value="$TBX_DEBUG_PORT" />
+        <option name="AUTO_RESTART" value="false" />
+        <RunnerSettings RunnerId="Debug">
+          <option name="DEBUG_PORT" value="$TBX_DEBUG_PORT" />
+          <option name="LOCAL" value="false" />
+        </RunnerSettings>
+        <method v="2" />
+      </configuration>
+    </component>
+    EOF
+    git -C "$TBX_REPO_PATH" check-ignore -q .idea || echo "warning: .idea is not git-ignored in $TBX_REPO_PATH" >&2
+  verify: |
+    test -f "$TBX_CONFIG" && test -f "$TBX_LAUNCHER" && test -f "$TBX_REPO_PATH/.idea/runConfigurations/$TBX_CONFIG_FILE" && test -f "$TBX_REPO_PATH/.idea/runConfigurations/$TBX_ATTACH_FILE"
+  destroy: |
+    rm -rf "$TBX_REPO_PATH/.idea/runConfigurations/$TBX_CONFIG_FILE" "$TBX_REPO_PATH/.idea/runConfigurations/$TBX_ATTACH_FILE"

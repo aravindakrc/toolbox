@@ -1,0 +1,63 @@
+kind: MavenInstall
+fields:
+  version:
+    type: string
+    required: true
+    sources:
+      - flag: version
+      - default: 3.9.9
+  home:
+    type: string
+    required: true
+    sources:
+      - default: ${data}/apache-maven-${version}
+  binary:
+    type: string
+    required: true
+    sources:
+      - default: ${home}/bin/mvn.cmd
+        when:
+          os: windows
+      - default: ${home}/bin/mvn
+provider:
+  discover: |
+    test -x "$TBX_BINARY" || test -f "$TBX_BINARY"
+  apply:
+    - when:
+        os: windows
+      run: |
+        url="https://archive.apache.org/dist/maven/maven-3/$TBX_VERSION/binaries/apache-maven-$TBX_VERSION-bin.zip"
+        archive="$TBX_DATA_DIR/maven.zip"
+        curl -fsSL -o "$archive" "$url" || exit 1
+        expected=$(curl -fsSL "$url.sha512") || exit 1
+        native=${archive//\//'\'}
+        actual=$(certutil -hashfile "$native" SHA512 | { read -r _; read -r hash; echo "$hash"; })
+        if [ "${actual//[ $'\r']/}" != "${expected%% *}" ]; then
+          rm -f "$archive"
+          echo "checksum mismatch for maven $TBX_VERSION" >&2
+          exit 1
+        fi
+        tar -xf "$archive" -C "$TBX_DATA_DIR" || exit 1
+        rm -f "$archive"
+    - run: |
+        url="https://archive.apache.org/dist/maven/maven-3/$TBX_VERSION/binaries/apache-maven-$TBX_VERSION-bin.tar.gz"
+        archive="$TBX_DATA_DIR/maven.tar.gz"
+        curl -fsSL -o "$archive" "$url" || exit 1
+        set -- $(curl -fsSL "$url.sha512") || exit 1
+        expected=$1
+        if command -v sha512sum >/dev/null 2>&1; then
+          set -- $(sha512sum "$archive")
+        else
+          set -- $(shasum -a 512 "$archive")
+        fi
+        if [ "$1" != "$expected" ]; then
+          rm -f "$archive"
+          echo "checksum mismatch for maven $TBX_VERSION" >&2
+          exit 1
+        fi
+        tar -xzf "$archive" -C "$TBX_DATA_DIR" || exit 1
+        rm -f "$archive"
+  verify: |
+    "$TBX_BINARY" --version >/dev/null
+  destroy: |
+    rm -rf "$TBX_HOME"

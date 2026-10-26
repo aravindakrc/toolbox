@@ -1,0 +1,19 @@
+kind: GithubRepo
+fields:
+  org:
+    type: string
+    required: true
+    sources:
+      - flag: org
+      - prompt: GitHub organisation or user
+      - default: ciValue
+  name:
+    type: string
+    required: true
+    sources:
+      - flag: name
+      - prompt: Repository name
+  cloneUrl:
+    type: string
+    sources:
+      - default: https://github.com/${org}/${name}.git

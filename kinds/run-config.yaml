@@ -1,0 +1,57 @@
+kind: RunConfig
+uses:
+  repo: LocalRepo
+  env: ServiceEnv
+fields:
+  mainClass:
+    type: string
+    required: true
+    sources:
+      - flag: mainClass
+      - prompt: Spring Boot main class
+  module:
+    type: string
+    required: true
+    sources:
+      - flag: module
+      - default: ${name}
+  profiles:
+    type: string
+    sources:
+      - flag: profiles
+  configName:
+    type: string
+    required: true
+    sources:
+      - default: ${name} (local)
+  configFile:
+    type: string
+    required: true
+    sources:
+      - default: tbx-${name}.xml
+provider:
+  discover: |
+    test -f "$TBX_REPO_PATH/.idea/runConfigurations/$TBX_CONFIG_FILE"
+  apply: |
+    dir="$TBX_REPO_PATH/.idea/runConfigurations"
+    mkdir -p "$dir"
+    cat > "$dir/$TBX_CONFIG_FILE" <<EOF
+    <component name="ProjectRunConfigurationManager">
+      <configuration default="false" name="$TBX_CONFIG_NAME" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+        <option name="ACTIVE_PROFILES" value="$TBX_PROFILES" />
+        <envFilePaths>
+          <option value="$TBX_ENV_FILE" />
+        </envFilePaths>
+        <module name="$TBX_MODULE" />
+        <option name="SPRING_BOOT_MAIN_CLASS" value="$TBX_MAIN_CLASS" />
+        <method v="2">
+          <option name="Make" enabled="true" />
+        </method>
+      </configuration>
+    </component>
+    EOF
+    git -C "$TBX_REPO_PATH" check-ignore -q .idea || echo "warning: .idea is not git-ignored in $TBX_REPO_PATH" >&2
+  verify: |
+    test -f "$TBX_REPO_PATH/.idea/runConfigurations/$TBX_CONFIG_FILE"
+  destroy: |
+    rm -rf "$TBX_REPO_PATH/.idea/runConfigurations/$TBX_CONFIG_FILE"

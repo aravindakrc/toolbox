@@ -1,0 +1,6 @@
+kind: AzLogin
+provider:
+  discover: az account show --output none
+  apply:
+    manual: docs/az-login.md
+  verify: az account show --output none

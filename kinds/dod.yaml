@@ -1,0 +1,33 @@
+kind: Dod
+uses:
+  ns: AksNamespace
+fields:
+  namespace:
+    type: string
+    required: true
+    sources:
+      - ref: ns.namespace
+  context:
+    type: string
+    required: true
+    sources:
+      - ref: ns.context
+  services:
+    type: string
+    required: true
+    sources:
+      - flag: services
+      - prompt: Services in the DOD, comma separated
+provider:
+  discover: |
+    IFS=,
+    for svc in $TBX_SERVICES; do
+      kubectl --context "$TBX_CONTEXT" -n "$TBX_NAMESPACE" get deployment "$svc" >/dev/null 2>&1 || exit 1
+    done
+  apply:
+    manual: docs/create-dod.md
+  verify: |
+    IFS=,
+    for svc in $TBX_SERVICES; do
+      kubectl --context "$TBX_CONTEXT" -n "$TBX_NAMESPACE" get deployment "$svc" >/dev/null || exit 1
+    done

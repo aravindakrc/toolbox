@@ -1,0 +1,61 @@
+kind: MirrordInstall
+fields:
+  version:
+    type: string
+    required: true
+    sources:
+      - flag: version
+      - default: 3.272.0
+  binary:
+    type: string
+    required: true
+    sources:
+      - default: ${data}/bin/mirrord.exe
+        when:
+          os: windows
+      - default: ${data}/bin/mirrord
+provider:
+  discover: |
+    test "$("$TBX_BINARY" --version 2>/dev/null)" = "mirrord $TBX_VERSION"
+  apply:
+    - when:
+        os: windows
+      run: |
+        base="https://github.com/metalbear-co/mirrord/releases/download/$TBX_VERSION"
+        mkdir -p "${TBX_BINARY%[/\\]*}"
+        curl -fsSL -o "$TBX_BINARY" "$base/mirrord.exe" || exit 1
+        expected=$(curl -fsSL "$base/mirrord.exe.sha256") || exit 1
+        native=${TBX_BINARY//\//'\'}
+        actual=$(certutil -hashfile "$native" SHA256 | { read -r _; read -r hash; echo "$hash"; })
+        if [ "${actual//[ $'\r']/}" != "$expected" ]; then
+          rm -rf "$TBX_BINARY"
+          echo "checksum mismatch for mirrord $TBX_VERSION" >&2
+          exit 1
+        fi
+    - run: |
+        case "$(uname -s)-$(uname -m)" in
+          Linux-x86_64) asset=mirrord_linux_x86_64 ;;
+          Linux-aarch64 | Linux-arm64) asset=mirrord_linux_aarch64 ;;
+          Darwin-*) asset=mirrord_mac_universal ;;
+          *) echo "unsupported platform" >&2; exit 1 ;;
+        esac
+        base="https://github.com/metalbear-co/mirrord/releases/download/$TBX_VERSION"
+        mkdir -p "$(dirname "$TBX_BINARY")"
+        curl -fsSL -o "$TBX_BINARY" "$base/$asset" || exit 1
+        set -- $(curl -fsSL "$base/$asset.shasum256") || exit 1
+        expected=$1
+        if command -v sha256sum >/dev/null 2>&1; then
+          set -- $(sha256sum "$TBX_BINARY")
+        else
+          set -- $(shasum -a 256 "$TBX_BINARY")
+        fi
+        if [ "$1" != "$expected" ]; then
+          rm -f "$TBX_BINARY"
+          echo "checksum mismatch for mirrord $TBX_VERSION" >&2
+          exit 1
+        fi
+        chmod +x "$TBX_BINARY"
+  verify: |
+    test "$("$TBX_BINARY" --version)" = "mirrord $TBX_VERSION"
+  destroy: |
+    rm -rf "$TBX_BINARY"

@@ -1,0 +1,72 @@
+recipe: local-civalue-server
+description: >
+  Run the civalue-server webapp on this machine against a DOD: clone the repository, copy the environment, and create
+  a plain local run configuration and a mirrord one that is wired into the cluster, with a debugger attach configuration.
+  The mirrord run turns off Redis sessions and caching, which cannot be reached by name from a local JVM, and maps the
+  Jasypt secret to the variable the code reads. It does not need the local Spring profile.
+inputs:
+  - name: service
+    description: Deployment name of the webapp in the DOD
+    default: webapp
+  - name: cluster
+    description: AKS cluster that hosts the namespace
+  - name: namespace
+    description: Namespace of the DOD
+  - name: repo
+    description: GitHub repository name
+    default: civalue-server
+  - name: org
+    description: GitHub organisation or user that owns the repository
+  - name: path
+    description: Local folder to clone the repository into, for example C:\Users\you\code\my-service
+  - name: services
+    description: Services that the DOD deploys, comma separated
+    default: ${service}
+  - name: mainClass
+    description: Spring Boot main class
+    default: com.civalue.Application
+steps:
+  - object: GithubRepo/${repo}
+    set:
+      org: ${org}
+      name: ${repo}
+  - object: LocalRepo/${repo}
+    set:
+      path: ${path}
+    use:
+      repo: GithubRepo/${repo}
+  - object: AzLogin/default
+  - object: AksNamespace/${namespace}
+    set:
+      cluster: ${cluster}
+    use:
+      login: AzLogin/default
+  - object: Dod/${namespace}
+    set:
+      services: ${services}
+    use:
+      ns: AksNamespace/${namespace}
+  - object: ServiceEnv/${service}
+    set:
+      service: ${service}
+    use:
+      dod: Dod/${namespace}
+  - object: RunConfig/${service}
+    set:
+      mainClass: ${mainClass}
+    use:
+      repo: LocalRepo/${repo}
+      env: ServiceEnv/${service}
+  - object: MirrordInstall/default
+  - object: MavenInstall/default
+  - object: MirrordRun/${service}
+    set:
+      service: ${service}
+      mavenModule: apps/back-ends/insights
+      overrides: SPRING_SESSION_STORE_TYPE=none;SPRING_CACHE_TYPE=none
+      envAliases: JASYPT_ENCRYPTOR_PASSWORD=JASYPT_SECRET
+    use:
+      repo: LocalRepo/${repo}
+      dod: Dod/${namespace}
+      mirrord: MirrordInstall/default
+      maven: MavenInstall/default

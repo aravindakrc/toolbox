@@ -1,0 +1,66 @@
+recipe: local-service
+description: >
+  Run a service of an existing DOD on this machine: clone its repo, copy its environment, and create a plain
+  local run configuration and a mirrord one that is wired into the cluster, with a debugger attach configuration.
+inputs:
+  - name: service
+    description: Deployment name of the service in the DOD, for example user-management-service
+  - name: cluster
+    description: AKS cluster that hosts the namespace
+  - name: namespace
+    description: Namespace of the DOD
+  - name: repo
+    description: GitHub repository name of the service
+    default: ${service}
+  - name: org
+    description: GitHub organisation or user that owns the repository
+  - name: path
+    description: Local folder to clone the repository into, for example C:\Users\you\code\my-service
+  - name: services
+    description: Services that the DOD deploys, comma separated
+    default: ${service}
+  - name: mainClass
+    description: Spring Boot main class; when it is not given it is asked for after the repository is cloned
+    optional: true
+steps:
+  - object: GithubRepo/${repo}
+    set:
+      org: ${org}
+      name: ${repo}
+  - object: LocalRepo/${repo}
+    set:
+      path: ${path}
+    use:
+      repo: GithubRepo/${repo}
+  - object: AzLogin/default
+  - object: AksNamespace/${namespace}
+    set:
+      cluster: ${cluster}
+    use:
+      login: AzLogin/default
+  - object: Dod/${namespace}
+    set:
+      services: ${services}
+    use:
+      ns: AksNamespace/${namespace}
+  - object: ServiceEnv/${service}
+    set:
+      service: ${service}
+    use:
+      dod: Dod/${namespace}
+  - object: RunConfig/${service}
+    set:
+      mainClass: ${mainClass}
+    use:
+      repo: LocalRepo/${repo}
+      env: ServiceEnv/${service}
+  - object: MirrordInstall/default
+  - object: MavenInstall/default
+  - object: MirrordRun/${service}
+    set:
+      service: ${service}
+    use:
+      repo: LocalRepo/${repo}
+      dod: Dod/${namespace}
+      mirrord: MirrordInstall/default
+      maven: MavenInstall/default
